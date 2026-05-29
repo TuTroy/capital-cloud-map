@@ -24,6 +24,15 @@ python app.py
 
 首次启动会自动拉取最新交易日数据，随后浏览器打开 `http://127.0.0.1:8080`。
 
+## 测试
+
+```bash
+source venv/bin/activate
+python -m pytest tests/ -v
+```
+
+44 个测试用例，覆盖 API 端点、数据一致性和工具函数。
+
 ## 目录结构
 
 ```
@@ -35,6 +44,11 @@ python app.py
 │   ├── classify.py         # 申万行业分类 + 行业汇聚
 │   ├── update_db.py        # SQLite 建表/写入/环比计算
 │   └── backfill.py         # 历史数据回填工具
+├── tests/
+│   ├── conftest.py         # pytest fixtures
+│   ├── test_api.py         # API 端点测试 (19)
+│   ├── test_consistency.py # 数据一致性测试 (10)
+│   └── test_scripts.py     # 工具函数单元测试 (15)
 ├── templates/
 │   └── index.html          # 前端页面 (ECharts 树图)
 ├── static/
