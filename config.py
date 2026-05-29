@@ -14,8 +14,8 @@ SW_INDUSTRY_MAP = os.path.join(DATA_DIR, "申万三级分类表.xlsx")
 DB_PATH = os.path.join(DATA_DIR, "history.db")
 
 # Flask
-FLASK_HOST = "127.0.0.1"
-FLASK_PORT = 8080
+FLASK_HOST = os.environ.get("FLASK_HOST", "127.0.0.1")
+FLASK_PORT = int(os.environ.get("FLASK_PORT", "8080"))
 
 # 腾讯行情接口 - 批量请求参数
 TENCENT_BATCH_SIZE = 50   # 每批查询股票数

@@ -368,10 +368,12 @@ def main():
 
     ok, trading_day = _ensure_data()
     if not ok:
-        print(f"[app] 交易日({trading_day})无行情数据，可能是非交易日，退出")
-        sys.exit(0)
+        print(f"[app] 交易日({trading_day})无行情数据，跳过拉取继续启动")
 
-    threading.Timer(1.0, _open_browser).start()
+    # 只在本地开发环境打开浏览器
+    if os.environ.get("FLY_APP_NAME") is None:
+        threading.Timer(1.0, _open_browser).start()
+
     app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
 
 
