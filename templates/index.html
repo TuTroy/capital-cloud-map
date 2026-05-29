@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>资金云图</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- header -->
+<header class="header">
+  <h1 class="title">资金云图</h1>
+  <div class="filters">
+    <div class="filter-group">
+      <label>日期</label>
+      <select id="date-picker"></select>
+    </div>
+    <div class="filter-group">
+      <label>板块</label>
+      <select id="board-filter">
+        <option value="">全部</option>
+        <option value="沪市主板">沪市主板</option>
+        <option value="深市主板">深市主板</option>
+        <option value="创业板">创业板</option>
+        <option value="科创板">科创板</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>指数</label>
+      <select id="index-filter">
+        <option value="">全部</option>
+        <option value="hs300">沪深300</option>
+        <option value="zz500">中证500</option>
+      </select>
+    </div>
+  </div>
+</header>
+
+<!-- breadcrumb -->
+<nav class="breadcrumb" id="breadcrumb">
+  <span class="crumb" data-level="一级" data-l1="" data-l2="">首页</span>
+</nav>
+
+<!-- main area -->
+<div class="main-container">
+  <div class="treemap-container" id="treemap"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+</div>
+
+<!-- data table -->
+<section class="table-section">
+  <h2 id="table-title">行业数据</h2>
+  <div class="table-wrap">
+    <table id="data-table">
+      <thead>
+        <tr>
+          <th>行业/代码</th>
+          <th>名称</th>
+          <th>市值(亿)</th>
+          <th>流通市值(亿)</th>
+          <th>成交额(亿)</th>
+          <th>涨跌幅(%)</th>
+          <th>成交额占比(%)</th>
+          <th>换手率(%)</th>
+          <th>成分股数</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+// ---------------------------------------------------------------------------
+// state
+// ---------------------------------------------------------------------------
+const state = {
+  date: '',
+  level: '一级',
+  parent_l1: '',
+  parent_l2: '',
+  board: '',
+  index: '',
+  data: [],
+  history: [], // for back-navigation
+};
+
+// ---------------------------------------------------------------------------
+// treemap color: red(涨) / green(跌), two-tone flat
+// ---------------------------------------------------------------------------
+function treemapColor(detail, isStockLevel) {
+  const val = isStockLevel
+    ? detail.change_pct
+    : (detail.float_cap_change != null ? detail.float_cap_change : detail.change_pct);
+  if (val == null || val === 0) return '#9ca3af';
+  return val > 0 ? '#dc2626' : '#16a34a';
+}
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  return r.json();
+}
+
+function buildIndustryURL() {
+  const p = new URLSearchParams({ date: state.date, level: state.level });
+  if (state.parent_l1) p.set('parent_l1', state.parent_l1);
+  if (state.parent_l2) p.set('parent_l2', state.parent_l2);
+  if (state.board) p.set('board', state.board);
+  if (state.index) p.set('index', state.index);
+  return `/api/industries?${p}`;
+}
+
+// ---------------------------------------------------------------------------
+// breadcrumb
+// ---------------------------------------------------------------------------
+function updateBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  let html = '<span class="crumb" data-level="一级" data-l1="" data-l2="">首页</span>';
+  if (state.parent_l1) {
+    html += ` <span class="sep">›</span> <span class="crumb" data-level="二级" data-l1="${state.parent_l1}" data-l2="">${state.parent_l1}</span>`;
+  }
+  if (state.parent_l2) {
+    html += ` <span class="sep">›</span> <span class="crumb" data-level="三级" data-l1="${state.parent_l1}" data-l2="${state.parent_l2}">${state.parent_l2}</span>`;
+  }
+  if (state.level === 'stocks') {
+    html += ` <span class="sep">›</span> <span class="crumb current">个股</span>`;
+  }
+  bc.innerHTML = html;
+
+  bc.querySelectorAll('.crumb').forEach(el => {
+    el.addEventListener('click', () => {
+      const lv = el.dataset.level;
+      state.level = lv === 'stocks' ? '三级' : lv;
+      state.parent_l1 = el.dataset.l1;
+      state.parent_l2 = el.dataset.l2;
+      state.history = [];
+      refreshAll();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// sidebar: TOP 5 inflow / outflow
+// ---------------------------------------------------------------------------
+async function updateSidebar(data) {
+  const isStockLevel = state.level === 'stocks';
+
+  // industry level: prefer float_cap_change, fall back to change_pct
+  const hasCapChange = isStockLevel
+    ? false
+    : data.some(d => (d.float_cap_change || 0) !== 0);
+
+  let sortKey, inflowTitle, outflowTitle, valUnit, valKey;
+  if (isStockLevel) {
+    sortKey = 'change_pct';
+    inflowTitle = 'TOP 5 涨幅'; outflowTitle = 'TOP 5 跌幅';
+    valUnit = '%'; valKey = 'change_pct';
+  } else if (hasCapChange) {
+    sortKey = 'float_cap_change';
+    inflowTitle = 'TOP 5 流入'; outflowTitle = 'TOP 5 流出';
+    valUnit = '亿'; valKey = 'float_cap_change';
+  } else {
+    sortKey = 'change_pct';
+    inflowTitle = 'TOP 5 涨幅'; outflowTitle = 'TOP 5 跌幅';
+    valUnit = '%'; valKey = 'change_pct';
+  }
+
+  const sorted = [...data].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+  const inflow = sorted.filter(d => (d[sortKey] || 0) > 0).slice(0, 5);
+  const outflow = sorted.filter(d => (d[sortKey] || 0) < 0).reverse().slice(0, 5);
+
+  let html = '';
+  const renderList = (title, items, cls) => {
+    html += `<div class="rank-section"><h3>${title}</h3><ol class="rank-list">`;
+    if (items.length === 0) {
+      html += '<li class="empty-hint">暂无</li>';
+    } else {
+      items.forEach(d => {
+        const val = d[valKey] != null ? Number(d[valKey]).toFixed(2) : '-';
+        const displayName = isStockLevel ? `${d.name}(${d.code})` : d.industry_name;
+        html += `<li class="${cls}"><span class="rank-name">${displayName}</span><span class="rank-val">${val}${valUnit}</span></li>`;
+      });
+    }
+    html += '</ol></div>';
+  };
+
+  renderList(inflowTitle, inflow, 'up');
+  renderList(outflowTitle, outflow, 'down');
+
+  if (state.level === '三级' && state.parent_l2) {
+    html += '<div class="rank-section"><h3>行业个股 TOP 10</h3><ol class="rank-list"><li>加载中...</li></ol></div>';
+    document.getElementById('sidebar').innerHTML = html;
+
+    try {
+      const stocks = await fetchJSON(`/api/stocks?date=${state.date}&industry_l2=${encodeURIComponent(state.parent_l2)}&industry_l1=${encodeURIComponent(state.parent_l1)}`);
+      const items = stocks.slice(0, 10).map(s =>
+        `<li><span class="rank-name">${s.name}(${s.code})</span><span class="rank-val">${s.turnover.toFixed(2)}亿</span></li>`
+      ).join('');
+      const ol = document.querySelector('#sidebar .rank-list:last-of-type');
+      if (ol) ol.innerHTML = items || '<li>暂无数据</li>';
+    } catch {
+      const ol = document.querySelector('#sidebar .rank-list:last-of-type');
+      if (ol) ol.innerHTML = '<li>加载失败</li>';
+    }
+    return;
+  }
+
+  document.getElementById('sidebar').innerHTML = html;
+}
+
+// ---------------------------------------------------------------------------
+// treemap
+// ---------------------------------------------------------------------------
+const chart = echarts.init(document.getElementById('treemap'));
+
+function getTreemapOption(data) {
+  const isStockLevel = state.level === 'stocks';
+
+  // font-size range mapped to rectangle size (log scale)
+  const vals = data.map(d => d.turnover || 0).filter(v => v > 0);
+  const logMin = Math.log10(Math.max(vals.length > 0 ? Math.min(...vals) : 0.01, 0.01));
+  const logMax = Math.log10(Math.max(vals.length > 0 ? Math.max(...vals) : 1, 1));
+  const logRange = logMax - logMin || 1;
+
+  const treemapData = data.map(d => {
+    const v = Math.max(d.turnover || 0, 0.01);
+    const ratio = (Math.log10(v) - logMin) / logRange;
+    const fs = Math.round(11 + Math.max(0, Math.min(1, ratio)) * 19);
+    return {
+      name: isStockLevel ? `${d.name}\n${d.code}` : d.industry_name,
+      value: v,
+      itemStyle: { color: treemapColor(d, isStockLevel) },
+      label: { fontSize: fs, fontWeight: 'bold' },
+      detail: d,
+    };
+  });
+
+  return {
+    tooltip: {
+      formatter: p => {
+        if (!p.data || !p.data.detail) return '';
+        const d = p.data.detail;
+        const change = d.float_cap_change != null ? d.float_cap_change.toFixed(2) : '-';
+        const mktChange = d.mkt_cap_change != null ? d.mkt_cap_change.toFixed(2) : '-';
+        const totalMkt = d.total_mkt_cap != null ? d.total_mkt_cap.toFixed(0) : '-';
+        const floatMkt = d.float_mkt_cap != null ? d.float_mkt_cap.toFixed(0) : '-';
+        return [
+          `<b>${p.name}</b>`,
+          `成交额: ${d.turnover != null ? d.turnover.toFixed(2) : '-'} 亿`,
+          `涨跌幅: ${d.change_pct != null ? d.change_pct.toFixed(2) : '-'}%`,
+          `总市值: ${totalMkt} 亿 | 流通市值: ${floatMkt} 亿`,
+          `市值变化: ${mktChange} 亿`,
+          `流通市值变化: ${change} 亿`,
+          `占比: ${d.market_share != null ? d.market_share.toFixed(2) : '-'}%`,
+          `换手率: ${d.turnover_ratio != null ? d.turnover_ratio.toFixed(2) : '-'}%`,
+          isStockLevel ? '' : `成分股: ${d.stock_count} 只`,
+        ].filter(Boolean).join('<br>');
+      },
+    },
+    series: [{
+      type: 'treemap',
+      width: '100%',
+      height: '100%',
+      roam: false,
+      nodeClick: false,
+      breadcrumb: { show: false },
+      label: {
+        show: true,
+        position: 'inside',
+        formatter: p => {
+          const d = p.data;
+          if (!d || !d.detail) return p.name || '';
+          const pct = d.detail.change_pct != null ? d.detail.change_pct.toFixed(2) : '-';
+          const amt = d.detail.turnover != null ? d.detail.turnover.toFixed(0) : '0';
+          return `${p.name}\n${pct}%  ${amt}亿`;
+        },
+      },
+      upperLabel: { show: false },
+      itemStyle: { borderColor: '#fff', borderWidth: 3, borderRadius: 6 },
+      emphasis: {
+        itemStyle: { shadowBlur: 12, shadowColor: 'rgba(0,0,0,0.25)' },
+      },
+      levels: [{
+        itemStyle: { borderColor: '#fff', borderWidth: 3, gapWidth: 3 },
+        upperLabel: { show: false },
+      }],
+      data: treemapData,
+    }],
+  };
+}
+
+function renderTreemap(data) {
+  chart.off('click');
+  chart.off('dblclick');
+
+  chart.on('click', params => {
+    if (!params.data || !params.data.detail) return;
+    const d = params.data.detail;
+
+    state.history.push({ level: state.level, parent_l1: state.parent_l1, parent_l2: state.parent_l2 });
+
+    if (state.level === '一级') {
+      state.level = '二级';
+      state.parent_l1 = d.industry_name;
+    } else if (state.level === '二级') {
+      state.level = '三级';
+      state.parent_l2 = d.industry_name;
+    } else if (state.level === '三级') {
+      state.level = 'stocks';
+    }
+    refreshAll();
+  });
+
+  chart.on('dblclick', () => {
+    if (state.history.length === 0) return;
+    const prev = state.history.pop();
+    state.level = prev.level;
+    state.parent_l1 = prev.parent_l1;
+    state.parent_l2 = prev.parent_l2;
+    refreshAll();
+  });
+
+  chart.setOption(getTreemapOption(data), true);
+}
+
+// ---------------------------------------------------------------------------
+// data table
+// ---------------------------------------------------------------------------
+function updateTable(data) {
+  const tbody = document.querySelector('#data-table tbody');
+  const titleEl = document.getElementById('table-title');
+  const isStockLevel = state.level === 'stocks';
+
+  titleEl.textContent = isStockLevel ? '个股数据' : '行业数据';
+
+  if (data.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无数据</td></tr>';
+    return;
+  }
+
+  const sorted = [...data].sort((a, b) => (b.turnover || 0) - (a.turnover || 0));
+
+  tbody.innerHTML = sorted.map(d => {
+    const codeOrName = isStockLevel ? d.code : d.industry_name;
+    const name = isStockLevel ? d.name : (d.industry_l2 || d.industry_l1 || '');
+    const count = d.stock_count != null ? d.stock_count : '-';
+    const totalMkt = d.total_mkt_cap != null && d.total_mkt_cap > 0
+      ? d.total_mkt_cap.toFixed(0) : '-';
+    const floatMkt = d.float_mkt_cap != null && d.float_mkt_cap > 0
+      ? d.float_mkt_cap.toFixed(0) : '-';
+    const pct = d.change_pct != null ? d.change_pct : 0;
+    const cls = pct > 0 ? 'up' : (pct < 0 ? 'down' : 'zero');
+    return `<tr>
+      <td>${codeOrName}</td>
+      <td>${name}</td>
+      <td>${totalMkt}</td>
+      <td>${floatMkt}</td>
+      <td>${(d.turnover || 0).toFixed(2)}</td>
+      <td class="${cls}">${pct.toFixed(2)}</td>
+      <td>${(d.market_share || 0).toFixed(2)}</td>
+      <td>${(d.turnover_ratio || 0).toFixed(2)}</td>
+      <td>${count}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// load dates for picker
+// ---------------------------------------------------------------------------
+async function loadDates() {
+  const dates = await fetchJSON('/api/dates');
+  const picker = document.getElementById('date-picker');
+  picker.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  if (dates.length > 0) state.date = dates[0];
+}
+
+// ---------------------------------------------------------------------------
+// refresh all
+// ---------------------------------------------------------------------------
+async function refreshAll() {
+  if (!state.date) return;
+
+  let data;
+  if (state.level === 'stocks') {
+    data = await fetchJSON(
+      `/api/stocks?date=${state.date}&industry_l1=${encodeURIComponent(state.parent_l1)}&industry_l2=${encodeURIComponent(state.parent_l2)}`
+    );
+  } else {
+    data = await fetchJSON(buildIndustryURL());
+  }
+
+  state.data = data;
+  updateBreadcrumb();
+
+  if (data.length === 0) {
+    chart.clear();
+    chart.setOption({
+      title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#9ca3af', fontSize: 18 } },
+      series: [],
+    });
+    await updateSidebar([]);
+    updateTable([]);
+    return;
+  }
+
+  renderTreemap(data);
+  await updateSidebar(data);
+  updateTable(data);
+}
+
+// ---------------------------------------------------------------------------
+// filter handlers
+// ---------------------------------------------------------------------------
+document.getElementById('date-picker').addEventListener('change', e => {
+  state.date = e.target.value;
+  state.level = '一级';
+  state.parent_l1 = '';
+  state.parent_l2 = '';
+  state.history = [];
+  refreshAll();
+});
+
+function onFilterChange() {
+  state.board = document.getElementById('board-filter').value;
+  state.index = document.getElementById('index-filter').value;
+  state.level = '一级';
+  state.parent_l1 = '';
+  state.parent_l2 = '';
+  state.history = [];
+  refreshAll();
+}
+
+document.getElementById('board-filter').addEventListener('change', onFilterChange);
+document.getElementById('index-filter').addEventListener('change', onFilterChange);
+
+// ---------------------------------------------------------------------------
+// responsive
+// ---------------------------------------------------------------------------
+window.addEventListener('resize', () => chart.resize());
+
+// ---------------------------------------------------------------------------
+// init
+// ---------------------------------------------------------------------------
+(async function init() {
+  await loadDates();
+  await refreshAll();
+})();
+</script>
+
+</body>
+</html>
