@@ -5,18 +5,22 @@ import numpy as np
 from config import SW_INDUSTRY_MAP
 
 
+def _safe_str(val):
+    s = str(val)
+    return "" if s in ("nan", "None", "") else s
+
+
 def load_sw_map():
     """加载申万三级分类表，返回 {股票代码: {l1, l2, l3}} 的映射"""
     df = pd.read_excel(SW_INDUSTRY_MAP)
-    # 股票代码统一为6位字符串
     df["code_str"] = df["股票代码"].astype(str).str.zfill(6)
 
     industry_map = {}
     for _, row in df.iterrows():
         industry_map[row["code_str"]] = {
-            "l1": str(row["一级行业名称"]),
-            "l2": str(row["二级行业名称"]),
-            "l3": str(row["三级行业名称"]),
+            "l1": _safe_str(row["一级行业名称"]),
+            "l2": _safe_str(row["二级行业名称"]),
+            "l3": _safe_str(row["三级行业名称"]),
         }
 
     print(f"[classify] 申万分类表加载: {len(industry_map)} 条映射")
@@ -31,9 +35,9 @@ def classify_stocks(df, industry_map):
         code = row["code"]
         if code in industry_map:
             info = industry_map[code]
-            df.at[idx, "industry_l1"] = info["l1"]
-            df.at[idx, "industry_l2"] = info["l2"]
-            df.at[idx, "industry_l3"] = info["l3"]
+            df.at[idx, "industry_l1"] = info["l1"] or "未分类"
+            df.at[idx, "industry_l2"] = info["l2"] or "未分类"
+            df.at[idx, "industry_l3"] = info["l3"] or "未分类"
         else:
             df.at[idx, "industry_l1"] = "未分类"
             df.at[idx, "industry_l2"] = "未分类"
@@ -88,9 +92,17 @@ def aggregate_industry(df, level_cols, level_name):
             group["turnover_ratio"].tolist(), group["turnover"].tolist()
         )
 
+        # disambiguate "未分类" entries so they don't collide on DB PK (date, level, industry_name)
+        ind_name = names[-1] if names else ""
+        if ind_name == "未分类":
+            if len(names) >= 3:
+                ind_name = f"未分类({names[0]}-{names[1]})"
+            elif len(names) >= 2:
+                ind_name = f"未分类({names[-2]})"
+
         results.append({
             "level": level_name,
-            "industry_name": names[-1] if names else "",
+            "industry_name": ind_name,
             "industry_l1": names[0] if len(names) >= 1 else "",
             "industry_l2": names[1] if len(names) >= 2 else "",
             "industry_l3": names[2] if len(names) >= 3 else "",
@@ -112,16 +124,12 @@ def aggregate_all_levels(df, market_total_turnover):
     l1["market_share"] = round(l1["turnover"] / market_total_turnover * 100, 2)
 
     # 二级：按 industry_l1 + industry_l2
-    l2 = aggregate_industry(
-        df[df["industry_l2"] != "未分类"], ["industry_l1", "industry_l2"], "二级"
-    )
+    l2 = aggregate_industry(df, ["industry_l1", "industry_l2"], "二级")
     l2["market_share"] = round(l2["turnover"] / market_total_turnover * 100, 2)
 
     # 三级：按 industry_l1 + industry_l2 + industry_l3
     l3 = aggregate_industry(
-        df[df["industry_l3"] != "未分类"],
-        ["industry_l1", "industry_l2", "industry_l3"],
-        "三级",
+        df, ["industry_l1", "industry_l2", "industry_l3"], "三级"
     )
     l3["market_share"] = round(l3["turnover"] / market_total_turnover * 100, 2)
 

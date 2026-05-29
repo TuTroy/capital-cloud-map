@@ -184,3 +184,86 @@ def test_filter_l3_to_stocks_count(client):
     l3_total_stocks = sum(d["stock_count"] for d in l3_data)
     assert len(stocks) == l3_total_stocks, \
         f"创业板 通信设备: stocks={len(stocks)} L3 sum={l3_total_stocks}"
+
+
+# ---------------------------------------------------------------------------
+# 未分类 consistency
+# ---------------------------------------------------------------------------
+
+def test_unclassified_l1_turnover_all_dates(client):
+    """All dates: L1 未分类 turnover == sum of 未分类 stock turnover."""
+    dates = json.loads(client.get("/api/dates").data)
+    for d in dates:
+        r_l1 = client.get(f"/api/industries?date={d}&level=一级")
+        l1_data = json.loads(r_l1.data)
+        uc = [x for x in l1_data if x["industry_name"] == "未分类"]
+        if not uc:
+            continue
+        uc_turnover = uc[0]["turnover"]
+
+        r_stocks = client.get(f"/api/stocks?date={d}&industry_l1=未分类")
+        stocks = json.loads(r_stocks.data)
+        stock_sum = sum(s["turnover"] for s in stocks)
+        assert abs(uc_turnover - stock_sum) < 0.1, \
+            f"Date {d}: L1 未分类 turnover={uc_turnover:.2f} != stocks sum={stock_sum:.2f}"
+
+
+def test_unclassified_l2_stock_count_all_dates(client):
+    """All dates: L2 未分类 stock counts consistent across L1→L2→stocks."""
+    dates = json.loads(client.get("/api/dates").data)
+    for d in dates:
+        # Check a few L1 industries that have L2 未分类
+        for l1_name in ["电子", "计算机"]:
+            r_l1 = client.get(f"/api/industries?date={d}&level=一级")
+            l1_data = json.loads(r_l1.data)
+            l1_uc = [x for x in l1_data if x["industry_name"] == l1_name]
+            if not l1_uc:
+                continue
+
+            r_l2 = client.get(
+                f"/api/industries?date={d}&level=二级&parent_l1={l1_name}"
+            )
+            l2_data = json.loads(r_l2.data)
+            l2_uc = [x for x in l2_data if x["industry_name"].startswith("未分类")]
+            if not l2_uc:
+                continue
+
+            for uc_l2 in l2_uc:
+                r_stocks = client.get(
+                    f"/api/stocks?date={d}&industry_l1={l1_name}&industry_l2=未分类"
+                )
+                stocks = json.loads(r_stocks.data)
+                assert len(stocks) == uc_l2["stock_count"], \
+                    f"Date {d} {l1_name}/未分类: L2={uc_l2['stock_count']} stocks={len(stocks)}"
+
+
+def test_unclassified_no_pk_collision(client):
+    """All dates, L2/L3: no two 未分类 entries share the same industry_name."""
+    dates = json.loads(client.get("/api/dates").data)
+    for d in dates:
+        # L1: check all L1 industries for L2 未分类 uniqueness
+        r_l1 = client.get(f"/api/industries?date={d}&level=一级")
+        l1_data = json.loads(r_l1.data)
+        for l1 in l1_data[:10]:
+            l1_name = l1["industry_name"]
+            r_l2 = client.get(
+                f"/api/industries?date={d}&level=二级&parent_l1={l1_name}"
+            )
+            l2_data = json.loads(r_l2.data)
+            l2_names = [x["industry_name"] for x in l2_data]
+            l2_uc = [n for n in l2_names if n.startswith("未分类")]
+            assert len(l2_uc) == len(set(l2_uc)), \
+                f"Date {d} L2 {l1_name}: duplicate 未分类 names: {l2_uc}"
+
+            # L3: check within L2 groups
+            for l2 in l2_data:
+                l2_name = l2["industry_name"]
+                r_l3 = client.get(
+                    f"/api/industries?date={d}&level=三级"
+                    f"&parent_l1={l1_name}&parent_l2={l2_name}"
+                )
+                l3_data = json.loads(r_l3.data)
+                l3_names = [x["industry_name"] for x in l3_data]
+                l3_uc = [n for n in l3_names if n.startswith("未分类")]
+                assert len(l3_uc) == len(set(l3_uc)), \
+                    f"Date {d} L3 {l1_name}/{l2_name}: duplicate 未分类 names: {l3_uc}"

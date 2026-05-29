@@ -94,10 +94,31 @@ def test_industries_l3_fast(client):
 
 
 def test_industries_l2_missing_parent(client):
-    """L2 without parent_l1 should still return data (empty if none match)"""
+    """L2 without parent_l1 should return 400 error."""
     r = client.get("/api/industries?date=2026-05-29&level=二级&parent_l1=")
-    # Returns empty because parent_l1="" matches nothing in WHERE
-    assert r.status_code == 200
+    assert r.status_code == 400
+    data = json.loads(r.data)
+    assert "error" in data
+
+
+def test_industries_l3_missing_parent(client):
+    """L3 without parent_l2 should return 400 error."""
+    r = client.get("/api/industries?date=2026-05-29&level=三级&parent_l1=电子&parent_l2=")
+    assert r.status_code == 400
+    data = json.loads(r.data)
+    assert "error" in data
+
+
+def test_industries_invalid_level(client):
+    """Invalid level should return 400."""
+    r = client.get("/api/industries?date=2026-05-29&level=四级")
+    assert r.status_code == 400
+
+
+def test_industries_invalid_date(client):
+    """Invalid date should return 400."""
+    r = client.get("/api/industries?date=not-a-date&level=一级")
+    assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -225,3 +246,128 @@ def test_index_page_loads(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "资金云图" in r.data.decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# 未分类 drill-down
+# ---------------------------------------------------------------------------
+
+def test_unclassified_l1_exists(client):
+    """L1 未分类 should exist with reasonable stock count."""
+    r = client.get("/api/industries?date=2026-05-29&level=一级")
+    data = json.loads(r.data)
+    unclassified = [d for d in data if d["industry_name"] == "未分类"]
+    assert len(unclassified) == 1
+    uc = unclassified[0]
+    assert uc["stock_count"] > 0
+    assert uc["turnover"] > 0
+
+
+def test_unclassified_l1_stocks_match(client):
+    """Stocks under L1 未分类 count == L1 未分类 stock_count."""
+    r_l1 = client.get("/api/industries?date=2026-05-29&level=一级")
+    l1_data = json.loads(r_l1.data)
+    uc = [d for d in l1_data if d["industry_name"] == "未分类"][0]
+
+    r_stocks = client.get("/api/stocks?date=2026-05-29&industry_l1=未分类")
+    stocks = json.loads(r_stocks.data)
+    assert len(stocks) == uc["stock_count"], \
+        f"未分类 L1 stock_count={uc['stock_count']} != stocks={len(stocks)}"
+
+
+def test_unclassified_l1_turnover_consistent(client):
+    """L1 未分类 turnover == sum of stocks under 未分类."""
+    r_l1 = client.get("/api/industries?date=2026-05-29&level=一级")
+    l1_data = json.loads(r_l1.data)
+    uc = [d for d in l1_data if d["industry_name"] == "未分类"][0]
+
+    r_stocks = client.get("/api/stocks?date=2026-05-29&industry_l1=未分类")
+    stocks = json.loads(r_stocks.data)
+    stock_turnover_sum = sum(s["turnover"] for s in stocks)
+    assert abs(uc["turnover"] - stock_turnover_sum) < 0.1, \
+        f"L1 未分类 turnover={uc['turnover']:.2f} != stocks sum={stock_turnover_sum:.2f}"
+
+
+def test_unclassified_l2_exists(client):
+    """L2 should have disambiguated 未分类 entries like '未分类(计算机)'."""
+    r = client.get("/api/industries?date=2026-05-29&level=二级&parent_l1=计算机")
+    data = json.loads(r.data)
+    uc = [d for d in data if d["industry_name"].startswith("未分类")]
+    assert len(uc) >= 1, f"Expected 未分类 entries in 计算机 L2, got {[d['industry_name'] for d in data]}"
+    for d in uc:
+        assert d["industry_l2"] == "未分类"
+        assert d["stock_count"] > 0
+
+
+def test_unclassified_l2_stocks_match(client):
+    """Stocks under L2 未分类(计算机) count == L2 未分类(计算机) stock_count."""
+    r_l2 = client.get("/api/industries?date=2026-05-29&level=二级&parent_l1=计算机")
+    l2_data = json.loads(r_l2.data)
+    uc = [d for d in l2_data if d["industry_name"].startswith("未分类")][0]
+
+    r_stocks = client.get(
+        f"/api/stocks?date=2026-05-29&industry_l1=计算机&industry_l2=未分类"
+    )
+    stocks = json.loads(r_stocks.data)
+    assert len(stocks) == uc["stock_count"], \
+        f"未分类(计算机) stock_count={uc['stock_count']} != stocks={len(stocks)}"
+
+
+def test_unclassified_l3_exists(client):
+    """L3 should have disambiguated 未分类 entries."""
+    r = client.get(
+        "/api/industries?date=2026-05-29&level=三级&parent_l1=计算机&parent_l2=计算机设备"
+    )
+    data = json.loads(r.data)
+    uc = [d for d in data if d["industry_name"].startswith("未分类")]
+    assert len(uc) >= 1, f"Expected 未分类 entries in 计算机-计算机设备 L3"
+    for d in uc:
+        assert d["industry_l3"] == "未分类"
+
+
+def test_unclassified_l3_stocks_match(client):
+    """Stocks under L3 未分类 count == L3 未分类 stock_count."""
+    r_l3 = client.get(
+        "/api/industries?date=2026-05-29&level=三级&parent_l1=计算机&parent_l2=计算机设备"
+    )
+    l3_data = json.loads(r_l3.data)
+    uc = [d for d in l3_data if d["industry_name"].startswith("未分类")][0]
+
+    r_stocks = client.get(
+        f"/api/stocks?date=2026-05-29&industry_l1=计算机"
+        f"&industry_l2=计算机设备&industry_l3=未分类"
+    )
+    stocks = json.loads(r_stocks.data)
+    assert len(stocks) == uc["stock_count"], \
+        f"L3 未分类 stock_count={uc['stock_count']} != stocks={len(stocks)}"
+
+
+def test_unclassified_l2_turnover_consistent(client):
+    """L2 未分类 turnover == sum of stocks under that 未分类 group."""
+    r_l2 = client.get("/api/industries?date=2026-05-29&level=二级&parent_l1=计算机")
+    l2_data = json.loads(r_l2.data)
+    uc = [d for d in l2_data if d["industry_name"].startswith("未分类")][0]
+
+    r_stocks = client.get(
+        f"/api/stocks?date=2026-05-29&industry_l1=计算机&industry_l2=未分类"
+    )
+    stocks = json.loads(r_stocks.data)
+    stock_turnover_sum = sum(s["turnover"] for s in stocks)
+    assert abs(uc["turnover"] - stock_turnover_sum) < 0.1, \
+        f"L2 未分类 turnover={uc['turnover']:.2f} != stocks sum={stock_turnover_sum:.2f}"
+
+
+# ---------------------------------------------------------------------------
+# date / level validation
+# ---------------------------------------------------------------------------
+
+def test_market_summary_invalid_date(client):
+    """Invalid date should return 400."""
+    r = client.get("/api/market-summary?date=abc")
+    assert r.status_code == 400
+
+
+def test_stocks_invalid_date(client):
+    """Invalid date in stocks should return 400."""
+    r = client.get("/api/stocks?date=bad-date&industry_l1=电子")
+    assert r.status_code == 400

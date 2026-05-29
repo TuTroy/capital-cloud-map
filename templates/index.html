@@ -81,6 +81,7 @@ const state = {
   level: '一级',
   parent_l1: '',
   parent_l2: '',
+  parent_l3: '',
   board: '',
   index: '',
   data: [],
@@ -125,7 +126,12 @@ function updateBreadcrumb() {
     html += ` <span class="sep">›</span> <span class="crumb" data-level="二级" data-l1="${state.parent_l1}" data-l2="">${state.parent_l1}</span>`;
   }
   if (state.parent_l2) {
-    html += ` <span class="sep">›</span> <span class="crumb" data-level="三级" data-l1="${state.parent_l1}" data-l2="${state.parent_l2}">${state.parent_l2}</span>`;
+    const l2crumbLevel = state.parent_l3 ? '三级' : '二级';
+    const l2crumbL2data = state.parent_l3 ? state.parent_l2 : '';
+    html += ` <span class="sep">›</span> <span class="crumb" data-level="${l2crumbLevel}" data-l1="${state.parent_l1}" data-l2="${l2crumbL2data}">${state.parent_l2}</span>`;
+  }
+  if (state.parent_l3) {
+    html += ` <span class="sep">›</span> <span class="crumb" data-level="stocks" data-l1="${state.parent_l1}" data-l2="${state.parent_l2}">${state.parent_l3}</span>`;
   }
   if (state.level === 'stocks') {
     html += ` <span class="sep">›</span> <span class="crumb current">个股</span>`;
@@ -138,6 +144,7 @@ function updateBreadcrumb() {
       state.level = lv === 'stocks' ? '三级' : lv;
       state.parent_l1 = el.dataset.l1;
       state.parent_l2 = el.dataset.l2;
+      state.parent_l3 = '';
       state.history = [];
       refreshAll();
     });
@@ -305,16 +312,30 @@ function renderTreemap(data) {
     if (!params.data || !params.data.detail) return;
     const d = params.data.detail;
 
-    state.history.push({ level: state.level, parent_l1: state.parent_l1, parent_l2: state.parent_l2 });
+    state.history.push({ level: state.level, parent_l1: state.parent_l1, parent_l2: state.parent_l2, parent_l3: state.parent_l3 });
 
     if (state.level === '一级') {
-      state.level = '二级';
-      state.parent_l1 = d.industry_name;
+      if (d.industry_l1 === '未分类') {
+        state.level = 'stocks';
+        state.parent_l1 = '未分类';
+        state.parent_l2 = '';
+        state.parent_l3 = '';
+      } else {
+        state.level = '二级';
+        state.parent_l1 = d.industry_l1;
+      }
     } else if (state.level === '二级') {
-      state.level = '三级';
-      state.parent_l2 = d.industry_name;
+      if (d.industry_l2 === '未分类') {
+        state.level = 'stocks';
+        state.parent_l2 = '未分类';
+        state.parent_l3 = '';
+      } else {
+        state.level = '三级';
+        state.parent_l2 = d.industry_l2;
+      }
     } else if (state.level === '三级') {
       state.level = 'stocks';
+      state.parent_l3 = d.industry_l3;
     }
     refreshAll();
   });
@@ -325,6 +346,7 @@ function renderTreemap(data) {
     state.level = prev.level;
     state.parent_l1 = prev.parent_l1;
     state.parent_l2 = prev.parent_l2;
+    state.parent_l3 = prev.parent_l3;
     refreshAll();
   });
 
@@ -390,7 +412,9 @@ async function refreshAll() {
 
   let data;
   if (state.level === 'stocks') {
-    let stockURL = `/api/stocks?date=${state.date}&industry_l1=${encodeURIComponent(state.parent_l1)}&industry_l2=${encodeURIComponent(state.parent_l2)}`;
+    let stockURL = `/api/stocks?date=${state.date}&industry_l1=${encodeURIComponent(state.parent_l1)}`;
+    if (state.parent_l2) stockURL += `&industry_l2=${encodeURIComponent(state.parent_l2)}`;
+    if (state.parent_l3) stockURL += `&industry_l3=${encodeURIComponent(state.parent_l3)}`;
     if (state.board) stockURL += `&board=${encodeURIComponent(state.board)}`;
     if (state.index) stockURL += `&index=${encodeURIComponent(state.index)}`;
     data = await fetchJSON(stockURL);
@@ -425,6 +449,7 @@ document.getElementById('date-picker').addEventListener('change', e => {
   state.level = '一级';
   state.parent_l1 = '';
   state.parent_l2 = '';
+  state.parent_l3 = '';
   state.history = [];
   refreshAll();
 });
@@ -435,6 +460,7 @@ function onFilterChange() {
   state.level = '一级';
   state.parent_l1 = '';
   state.parent_l2 = '';
+  state.parent_l3 = '';
   state.history = [];
   refreshAll();
 }

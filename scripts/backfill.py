@@ -80,9 +80,9 @@ def build_dataframes(kline_data, sw_map):
             if turnover_yi == 0:
                 continue
 
-            l1 = sw_map.get(code, {}).get("l1", "未分类")
-            l2 = sw_map.get(code, {}).get("l2", "未分类")
-            l3 = sw_map.get(code, {}).get("l3", "未分类")
+            l1 = sw_map.get(code, {}).get("l1") or "未分类"
+            l2 = sw_map.get(code, {}).get("l2") or "未分类"
+            l3 = sw_map.get(code, {}).get("l3") or "未分类"
 
             if code.startswith("60"):     board = "沪市主板"
             elif code.startswith("00"):   board = "深市主板"
@@ -114,11 +114,9 @@ def build_dataframes(kline_data, sw_map):
         # 汇聚行业
         l1 = aggregate_industry(df, ["industry_l1"], "一级")
         l1["market_share"] = round(l1["turnover"] / market_total * 100, 2)
-        l2 = aggregate_industry(df[df["industry_l2"] != "未分类"],
-                                ["industry_l1", "industry_l2"], "二级")
+        l2 = aggregate_industry(df, ["industry_l1", "industry_l2"], "二级")
         l2["market_share"] = round(l2["turnover"] / market_total * 100, 2)
-        l3 = aggregate_industry(df[df["industry_l3"] != "未分类"],
-                                ["industry_l1", "industry_l2", "industry_l3"], "三级")
+        l3 = aggregate_industry(df, ["industry_l1", "industry_l2", "industry_l3"], "三级")
         l3["market_share"] = round(l3["turnover"] / market_total * 100, 2)
 
         result[date_str] = (df, l1, l2, l3)

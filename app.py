@@ -21,19 +21,37 @@ app = Flask(__name__)
 # ---------------------------------------------------------------------------
 
 def _query(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+    except sqlite3.Error as e:
+        print(f"[app] DB query error: {e}")
+        raise
 
 
 def _latest_date():
     """返回 DB 中最新的数据日期"""
     rows = _query("SELECT MAX(date) AS d FROM industry_daily")
     return rows[0]["d"] if rows and rows[0]["d"] else None
+
+
+def _parse_date(date_str):
+    """Validate date string, return normalized form or raise ValueError."""
+    if not date_str:
+        raise ValueError("date is required")
+    try:
+        datetime.date.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        raise ValueError(f"invalid date format: {date_str!r}")
+    return date_str
+
+
+LEVELS = {"一级", "二级", "三级"}
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +73,10 @@ def api_dates():
 @app.route("/api/market-summary")
 def api_market_summary():
     date = request.args.get("date") or _latest_date()
+    try:
+        date = _parse_date(date)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     row = _query(
         "SELECT SUM(turnover) AS total_turnover, "
         "SUM(stock_count) AS total_stocks "
@@ -76,7 +98,15 @@ def api_market_summary():
 @app.route("/api/industries")
 def api_industries():
     date = request.args.get("date") or _latest_date()
+    try:
+        date = _parse_date(date)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
     level = request.args.get("level", "一级")
+    if level not in LEVELS:
+        return jsonify({"error": f"invalid level: {level!r}, must be 一级/二级/三级"}), 400
+
     parent_l1 = request.args.get("parent_l1", "")
     parent_l2 = request.args.get("parent_l2", "")
     board = request.args.get("board", "")
@@ -133,8 +163,15 @@ def api_industries():
 
         # compute mkt_cap_change / float_cap_change by comparing with yesterday
         prev_date = (datetime.date.fromisoformat(date) - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        prev_where = ["date=?"] + where[1:]
-        prev_params = [prev_date] + params[1:]
+        prev_where = ["date=?"]
+        prev_params = [prev_date]
+        if board:
+            prev_where.append("board=?")
+            prev_params.append(board)
+        if index_filter == "hs300":
+            prev_where.append("is_hs300=1")
+        elif index_filter == "zz500":
+            prev_where.append("is_zz500=1")
         prev_stocks = _query(
             f"SELECT * FROM stock_daily WHERE {' AND '.join(prev_where)}",
             prev_params,
@@ -186,12 +223,16 @@ def api_industries():
             (date,),
         )
     elif level == "二级":
+        if not parent_l1:
+            return jsonify({"error": "parent_l1 is required for level=二级"}), 400
         rows = _query(
             "SELECT * FROM industry_daily WHERE date=? AND level='二级' "
             "AND industry_l1=? ORDER BY turnover DESC",
             (date, parent_l1),
         )
     else:
+        if not parent_l1 or not parent_l2:
+            return jsonify({"error": "parent_l1 and parent_l2 are required for level=三级"}), 400
         rows = _query(
             "SELECT * FROM industry_daily WHERE date=? AND level='三级' "
             "AND industry_l1=? AND industry_l2=? ORDER BY turnover DESC",
@@ -215,6 +256,10 @@ def api_industries():
 @app.route("/api/stocks")
 def api_stocks():
     date = request.args.get("date") or _latest_date()
+    try:
+        date = _parse_date(date)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     l1 = request.args.get("industry_l1", "")
     l2 = request.args.get("industry_l2", "")
     l3 = request.args.get("industry_l3", "")

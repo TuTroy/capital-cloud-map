@@ -24,6 +24,15 @@ python app.py
 
 首次启动会自动拉取最新交易日数据，随后浏览器打开 `http://127.0.0.1:8080`。
 
+## 定时数据更新
+
+项目包含一个工作日 17:27 的自动拉取定时任务。如未配置，可通过以下方式手动触发：
+
+```bash
+source venv/bin/activate
+python -c "from app import _ensure_data; _ensure_data()"
+```
+
 ## 测试
 
 ```bash
@@ -31,7 +40,7 @@ source venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-44 个测试用例，覆盖 API 端点、数据一致性和工具函数。
+60 个测试用例，覆盖 API 端点、数据一致性、未分类 drill-down 和工具函数。
 
 ## 目录结构
 
@@ -46,9 +55,9 @@ python -m pytest tests/ -v
 │   └── backfill.py         # 历史数据回填工具
 ├── tests/
 │   ├── conftest.py         # pytest fixtures
-│   ├── test_api.py         # API 端点测试 (19)
-│   ├── test_consistency.py # 数据一致性测试 (10)
-│   └── test_scripts.py     # 工具函数单元测试 (15)
+│   ├── test_api.py         # API 端点测试
+│   ├── test_consistency.py # 数据一致性测试
+│   └── test_scripts.py     # 工具函数单元测试
 ├── templates/
 │   └── index.html          # 前端页面 (ECharts 树图)
 ├── static/
@@ -60,8 +69,20 @@ python -m pytest tests/ -v
 ## 功能
 
 - **矩形树图**: 面积代表成交额大小，红色=上涨/流入，绿色=下跌/流出
-- **行业下钻**: 点击进入二级→三级→个股，双击返回上级
+- **行业下钻**: 点击进入二级→三级→个股，双击返回上级。分类缺失的股票归入各层级"未分类"，点击直接跳转个股
+- **面包屑导航**: 完整显示当前层级路径，支持点击回溯任意层级
 - **板块/指数过滤**: 按市场板块（科创板/创业板等）或指数成分（沪深300/中证500）筛选
-- **排行侧边栏**: 实时显示 TOP 5 涨跌幅或资金流入/流出
-- **数据表**: 所有层级的数据明细，按成交额排序
+- **排行侧边栏**: 实时显示 TOP 5 涨跌幅或资金流入/流出，三级行业下显示行业个股 TOP 10
+- **数据表**: 所有层级的数据明细，按成交额排序，展示市值变化、成交额占比、换手率等
 - **历史回看**: 日期选择器切换历史交易日
+
+## API 端点
+
+| 端点 | 说明 |
+|------|------|
+| `/api/dates` | 可用交易日列表 |
+| `/api/market-summary` | 全市场成交额与股票数汇总 |
+| `/api/industries` | 行业汇聚数据（支持 level/board/index/parent 过滤） |
+| `/api/stocks` | 个股明细（按行业/板块/指数过滤） |
+
+所有接口支持 `?date=YYYY-MM-DD` 参数，默认返回最新交易日数据。无效参数返回 400 错误。
