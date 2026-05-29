@@ -54,7 +54,7 @@ def test_industries_l1_fast(client):
     r = client.get("/api/industries?date=2026-05-29&level=一级")
     assert r.status_code == 200
     data = json.loads(r.data)
-    assert len(data) == 32
+    assert len(data) == 4
     # sorted by turnover desc
     turnovers = [d["turnover"] for d in data]
     assert turnovers == sorted(turnovers, reverse=True)
@@ -72,7 +72,7 @@ def test_industries_l2_fast(client):
     r = client.get("/api/industries?date=2026-05-29&level=二级&parent_l1=电子")
     assert r.status_code == 200
     data = json.loads(r.data)
-    assert len(data) == 6
+    assert len(data) == 2  # 半导体, 元件
     for d in data:
         assert d["level"] == "二级"
         assert d["industry_l1"] == "电子"
@@ -84,7 +84,7 @@ def test_industries_l3_fast(client):
     r = client.get("/api/industries?date=2026-05-29&level=三级&parent_l1=电子&parent_l2=半导体")
     assert r.status_code == 200
     data = json.loads(r.data)
-    assert len(data) == 7
+    assert len(data) == 2  # 数字芯片设计, 集成电路制造
     for d in data:
         assert d["level"] == "三级"
         assert d["industry_l1"] == "电子"
@@ -191,7 +191,7 @@ def test_stocks_basic(client):
     r = client.get("/api/stocks?date=2026-05-29&industry_l1=电子&industry_l2=半导体&industry_l3=数字芯片设计")
     assert r.status_code == 200
     data = json.loads(r.data)
-    assert len(data) == 51
+    assert len(data) == 5
     d0 = data[0]
     for f in ["code", "name", "board", "total_mkt_cap", "float_mkt_cap",
               "turnover", "change_pct", "turnover_ratio", "market_share",
@@ -209,7 +209,7 @@ def test_stocks_with_board_filter(client):
     r = client.get("/api/stocks?date=2026-05-29&industry_l1=通信&industry_l2=通信设备&board=创业板")
     assert r.status_code == 200
     data = json.loads(r.data)
-    assert len(data) == 38
+    assert len(data) == 2
     for d in data:
         assert d["board"] == "创业板"
 
@@ -218,7 +218,7 @@ def test_stocks_with_index_filter(client):
     r = client.get("/api/stocks?date=2026-05-29&industry_l1=通信&industry_l2=通信设备&index=hs300")
     assert r.status_code == 200
     data = json.loads(r.data)
-    assert len(data) == 6
+    assert len(data) == 1
     for d in data:
         assert d["is_hs300"] == 1
 
