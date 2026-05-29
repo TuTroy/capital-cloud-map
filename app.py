@@ -102,7 +102,6 @@ def api_industries():
             return jsonify([])
 
         df = pd.DataFrame(stocks)
-        market_turnover = df["turnover"].sum()
 
         # filter by parent industry at the stock level
         if parent_l1:
@@ -118,9 +117,65 @@ def api_industries():
             level_cols = ["industry_l1", "industry_l2", "industry_l3"]
 
         agg = aggregate_industry(df, level_cols, level)
-        agg["market_share"] = round(
-            agg["turnover"] / market_turnover * 100, 2
-        ) if market_turnover else 0
+        market_turnover = df["turnover"].sum()
+
+        # market_share: L1 vs full filtered market, L2/L3 vs parent group
+        def _compute_share(row):
+            if level == "一级":
+                return round(row["turnover"] / market_turnover * 100, 2) if market_turnover else 0
+            parent_mask = df["industry_l1"] == row["industry_l1"]
+            if level == "三级":
+                parent_mask &= df["industry_l2"] == row["industry_l2"]
+            parent_total = df.loc[parent_mask, "turnover"].sum()
+            return round(row["turnover"] / parent_total * 100, 2) if parent_total else 0
+
+        agg["market_share"] = agg.apply(_compute_share, axis=1)
+
+        # compute mkt_cap_change / float_cap_change by comparing with yesterday
+        prev_date = (datetime.date.fromisoformat(date) - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        prev_where = ["date=?"] + where[1:]
+        prev_params = [prev_date] + params[1:]
+        prev_stocks = _query(
+            f"SELECT * FROM stock_daily WHERE {' AND '.join(prev_where)}",
+            prev_params,
+        )
+        if prev_stocks:
+            prev_df = pd.DataFrame(prev_stocks)
+            if parent_l1:
+                prev_df = prev_df[prev_df["industry_l1"] == parent_l1]
+            if parent_l2:
+                prev_df = prev_df[prev_df["industry_l2"] == parent_l2]
+            prev_agg = aggregate_industry(prev_df, level_cols, level)
+            prev_map = {}
+            for _, pr in prev_agg.iterrows():
+                prev_map[pr["industry_name"]] = {
+                    "total_mkt_cap": pr["total_mkt_cap"],
+                    "float_mkt_cap": pr["float_mkt_cap"],
+                    "turnover": pr["turnover"],
+                }
+        else:
+            prev_map = {}
+
+        def _mkt_change(row):
+            p = prev_map.get(row["industry_name"])
+            if p and p["total_mkt_cap"] and row["total_mkt_cap"]:
+                return round(float(row["total_mkt_cap"]) - float(p["total_mkt_cap"]), 2)
+            return None
+
+        def _float_change(row):
+            p = prev_map.get(row["industry_name"])
+            if p and p["float_mkt_cap"] and row["float_mkt_cap"]:
+                return round(float(row["float_mkt_cap"]) - float(p["float_mkt_cap"]), 2)
+            return None
+
+        def _prev_turnover(row):
+            p = prev_map.get(row["industry_name"])
+            return p["turnover"] if p else None
+
+        agg["mkt_cap_change"] = agg.apply(_mkt_change, axis=1)
+        agg["float_cap_change"] = agg.apply(_float_change, axis=1)
+        agg["prev_turnover"] = agg.apply(_prev_turnover, axis=1)
+
         return jsonify(agg.to_dict(orient="records"))
 
     # --- fast path: pre-computed data ---
@@ -163,6 +218,8 @@ def api_stocks():
     l1 = request.args.get("industry_l1", "")
     l2 = request.args.get("industry_l2", "")
     l3 = request.args.get("industry_l3", "")
+    board = request.args.get("board", "")
+    index_filter = request.args.get("index", "")
 
     where = ["date=?", "industry_l1=?"]
     params = [date, l1]
@@ -172,6 +229,13 @@ def api_stocks():
     if l3:
         where.append("industry_l3=?")
         params.append(l3)
+    if board:
+        where.append("board=?")
+        params.append(board)
+    if index_filter == "hs300":
+        where.append("is_hs300=1")
+    elif index_filter == "zz500":
+        where.append("is_zz500=1")
 
     rows = _query(
         f"SELECT code, name, board, total_mkt_cap, float_mkt_cap, "

@@ -56,6 +56,12 @@ def _wavg(values, weights):
 
 def aggregate_industry(df, level_cols, level_name):
     """按行业层级汇聚计算"""
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "level", "industry_name", "industry_l1", "industry_l2", "industry_l3",
+            "stock_count", "total_mkt_cap", "float_mkt_cap",
+            "turnover", "change_pct", "turnover_ratio",
+        ])
     results = []
 
     for level_key, group in df.groupby(level_cols, dropna=False):

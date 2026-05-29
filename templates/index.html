@@ -197,7 +197,10 @@ async function updateSidebar(data) {
     document.getElementById('sidebar').innerHTML = html;
 
     try {
-      const stocks = await fetchJSON(`/api/stocks?date=${state.date}&industry_l2=${encodeURIComponent(state.parent_l2)}&industry_l1=${encodeURIComponent(state.parent_l1)}`);
+      let sidebarStockURL = `/api/stocks?date=${state.date}&industry_l2=${encodeURIComponent(state.parent_l2)}&industry_l1=${encodeURIComponent(state.parent_l1)}`;
+      if (state.board) sidebarStockURL += `&board=${encodeURIComponent(state.board)}`;
+      if (state.index) sidebarStockURL += `&index=${encodeURIComponent(state.index)}`;
+      const stocks = await fetchJSON(sidebarStockURL);
       const items = stocks.slice(0, 10).map(s =>
         `<li><span class="rank-name">${s.name}(${s.code})</span><span class="rank-val">${s.turnover.toFixed(2)}亿</span></li>`
       ).join('');
@@ -387,9 +390,10 @@ async function refreshAll() {
 
   let data;
   if (state.level === 'stocks') {
-    data = await fetchJSON(
-      `/api/stocks?date=${state.date}&industry_l1=${encodeURIComponent(state.parent_l1)}&industry_l2=${encodeURIComponent(state.parent_l2)}`
-    );
+    let stockURL = `/api/stocks?date=${state.date}&industry_l1=${encodeURIComponent(state.parent_l1)}&industry_l2=${encodeURIComponent(state.parent_l2)}`;
+    if (state.board) stockURL += `&board=${encodeURIComponent(state.board)}`;
+    if (state.index) stockURL += `&index=${encodeURIComponent(state.index)}`;
+    data = await fetchJSON(stockURL);
   } else {
     data = await fetchJSON(buildIndustryURL());
   }
