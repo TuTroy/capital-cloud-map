@@ -38,6 +38,22 @@
   </div>
 </header>
 
+<!-- top5 -->
+<section class="top5-container" id="top5-container">
+  <div class="top5-card" id="top5-gainers-card">
+    <h3>涨幅 TOP5</h3>
+    <div class="top5-list"></div>
+  </div>
+  <div class="top5-card" id="top5-losers-card">
+    <h3>跌幅 TOP5</h3>
+    <div class="top5-list"></div>
+  </div>
+  <div class="top5-card" id="top5-turnover-card">
+    <h3>成交额 TOP5</h3>
+    <div class="top5-list"></div>
+  </div>
+</section>
+
 <!-- breadcrumb -->
 <nav class="breadcrumb" id="breadcrumb">
   <span class="crumb" data-level="一级" data-l1="" data-l2="">首页</span>
@@ -405,6 +421,43 @@ async function loadDates() {
 }
 
 // ---------------------------------------------------------------------------
+// top5
+// ---------------------------------------------------------------------------
+async function updateTop5() {
+  if (!state.date) return;
+  const p = new URLSearchParams({ date: state.date });
+  if (state.board) p.set('board', state.board);
+  if (state.index) p.set('index', state.index);
+  const data = await fetchJSON(`/api/top5?${p}`);
+
+  function renderCard(cardId, items, valKey, valUnit, valClass) {
+    const list = document.querySelector(`#${cardId} .top5-list`);
+    if (!items || items.length === 0) {
+      list.innerHTML = '<div class="t5-empty">暂无数据</div>';
+      return;
+    }
+    list.innerHTML = items.map(d => {
+      const mktCap = d.total_mkt_cap != null && d.total_mkt_cap > 0
+        ? d.total_mkt_cap.toFixed(0) : '-';
+      const val = d[valKey] != null ? Number(d[valKey]).toFixed(2) : '-';
+      const cls = valClass ? valClass(d[valKey]) : '';
+      return `<div class="t5-row">
+        <span class="t5-name" title="${d.name}(${d.code})">${d.name}<em>${d.code}</em></span>
+        <span class="t5-industry">${d.industry_l1 || '-'}</span>
+        <span class="t5-mktcap">${mktCap}亿</span>
+        <span class="t5-val ${cls}">${val}${valUnit}</span>
+      </div>`;
+    }).join('');
+  }
+
+  renderCard('top5-gainers-card', data.gainers, 'change_pct', '%',
+    v => v > 0 ? 'up' : (v < 0 ? 'down' : ''));
+  renderCard('top5-losers-card', data.losers, 'change_pct', '%',
+    v => v > 0 ? 'up' : (v < 0 ? 'down' : ''));
+  renderCard('top5-turnover-card', data.turnover, 'turnover', '亿', () => '');
+}
+
+// ---------------------------------------------------------------------------
 // refresh all
 // ---------------------------------------------------------------------------
 async function refreshAll() {
@@ -451,6 +504,7 @@ document.getElementById('date-picker').addEventListener('change', e => {
   state.parent_l2 = '';
   state.parent_l3 = '';
   state.history = [];
+  updateTop5();
   refreshAll();
 });
 
@@ -462,6 +516,7 @@ function onFilterChange() {
   state.parent_l2 = '';
   state.parent_l3 = '';
   state.history = [];
+  updateTop5();
   refreshAll();
 }
 
@@ -478,6 +533,7 @@ window.addEventListener('resize', () => chart.resize());
 // ---------------------------------------------------------------------------
 (async function init() {
   await loadDates();
+  updateTop5();
   await refreshAll();
 })();
 </script>

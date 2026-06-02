@@ -67,6 +67,100 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
+/* top5                                                               */
+/* ------------------------------------------------------------------ */
+.top5-container {
+  display: flex;
+  gap: 12px;
+  padding: 10px 24px;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.top5-card {
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.top5-card h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f3f4f6;
+  letter-spacing: 0.5px;
+}
+
+.t5-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid #f9fafb;
+}
+
+.t5-row:last-child { border-bottom: none; }
+
+.t5-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t5-name em {
+  font-style: normal;
+  color: #9ca3af;
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+.t5-industry {
+  color: #6b7280;
+  font-size: 11px;
+  flex-shrink: 0;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t5-mktcap {
+  color: #9ca3af;
+  font-size: 11px;
+  flex-shrink: 0;
+  text-align: right;
+  min-width: 48px;
+  font-variant-numeric: tabular-nums;
+}
+
+.t5-val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  text-align: right;
+  min-width: 56px;
+}
+
+.t5-val.up { color: #dc2626; }
+.t5-val.down { color: #16a34a; }
+
+.t5-empty {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 12px;
+  padding: 12px 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* breadcrumb                                                         */
 /* ------------------------------------------------------------------ */
 .breadcrumb {
@@ -196,10 +290,7 @@ body {
   border-bottom: 1px solid #e5e7eb;
 }
 
-.table-wrap {
-  max-height: 360px;
-  overflow-y: auto;
-}
+.table-wrap { }
 
 table {
   width: 100%;
@@ -207,11 +298,7 @@ table {
   font-size: 13px;
 }
 
-thead {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
+thead { }
 
 th {
   background: #f9fafb;
@@ -256,4 +343,5 @@ td.zero { color: #9ca3af; }
   .sidebar { width: auto; margin: 8px; }
   .header { flex-direction: column; gap: 10px; align-items: flex-start; }
   .filters { flex-wrap: wrap; }
+  .top5-container { flex-direction: column; padding: 8px; }
 }

@@ -6,7 +6,10 @@ import sqlite3
 import webbrowser
 import threading
 
+import atexit
+
 import pandas as pd
+from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, render_template, request
 
 from config import DB_PATH, FLASK_HOST, FLASK_PORT, DATA_DIR
@@ -322,6 +325,43 @@ def api_stocks():
 
 
 # ---------------------------------------------------------------------------
+# API: top5
+# ---------------------------------------------------------------------------
+
+@app.route("/api/top5")
+def api_top5():
+    date = request.args.get("date") or _latest_date()
+    try:
+        date = _parse_date(date)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    board = request.args.get("board", "")
+    index_filter = request.args.get("index", "")
+
+    where = ["date=?"]
+    params = [date]
+    if board:
+        where.append("board=?")
+        params.append(board)
+    if index_filter == "hs300":
+        where.append("is_hs300=1")
+    elif index_filter == "zz500":
+        where.append("is_zz500=1")
+
+    base = f"SELECT code, name, industry_l1, total_mkt_cap, change_pct, turnover FROM stock_daily WHERE {' AND '.join(where)}"
+
+    gainers = _query(f"{base} ORDER BY change_pct DESC LIMIT 5", params)
+    losers = _query(f"{base} ORDER BY change_pct ASC LIMIT 5", params)
+    top_turnover = _query(f"{base} ORDER BY turnover DESC LIMIT 5", params)
+
+    return jsonify({
+        "gainers": gainers,
+        "losers": losers,
+        "turnover": top_turnover,
+    })
+
+
+# ---------------------------------------------------------------------------
 # main page
 # ---------------------------------------------------------------------------
 
@@ -369,6 +409,19 @@ def main():
     ok, trading_day = _ensure_data()
     if not ok:
         print(f"[app] 交易日({trading_day})无行情数据，跳过拉取继续启动")
+
+    # 内嵌调度器：工作日 17:27 自动拉取数据
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        _ensure_data,
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=17,
+        minute=27,
+        id="daily_fetch",
+    )
+    scheduler.start()
+    atexit.register(lambda: scheduler.shutdown(wait=False))
 
     # 只在本地开发环境打开浏览器
     if os.environ.get("FLY_APP_NAME") is None:
