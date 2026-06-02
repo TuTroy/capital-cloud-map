@@ -24,5 +24,16 @@ jobs:
             kill $(lsof -ti:8080) 2>/dev/null || true
             sleep 1
             PRODUCTION=1 nohup venv/bin/python app.py > app.log 2>&1 &
-            sleep 2
-            curl -s -o /dev/null -w "Deploy OK HTTP %{http_code}" http://127.0.0.1:8080/
+
+            # wait up to 30s for app to start
+            for i in $(seq 1 30); do
+              sleep 1
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ 2>/dev/null || echo "000")
+              if [ "$code" = "200" ]; then
+                echo "Deploy OK HTTP $code"
+                exit 0
+              fi
+            done
+            echo "Deploy FAILED - app did not start within 30s"
+            tail -20 app.log
+            exit 1
