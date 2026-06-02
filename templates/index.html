@@ -88,6 +88,22 @@
   </div>
 </section>
 
+<!-- K-line modal -->
+<div class="kline-modal-overlay" id="kline-modal">
+  <div class="kline-modal">
+    <div class="kline-modal-header">
+      <div>
+        <h2 id="kline-title">K线图</h2>
+        <span class="kline-stock-info" id="kline-info"></span>
+      </div>
+      <button class="kline-modal-close" id="kline-close">&times;</button>
+    </div>
+    <div class="kline-modal-body">
+      <div class="kline-chart-container" id="kline-chart"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ---------------------------------------------------------------------------
 // state
@@ -328,6 +344,11 @@ function renderTreemap(data) {
     if (!params.data || !params.data.detail) return;
     const d = params.data.detail;
 
+    if (state.level === 'stocks') {
+      openKlineModal(d.code, d.name);
+      return;
+    }
+
     state.history.push({ level: state.level, parent_l1: state.parent_l1, parent_l2: state.parent_l2, parent_l3: state.parent_l3 });
 
     if (state.level === '一级') {
@@ -524,9 +545,129 @@ document.getElementById('board-filter').addEventListener('change', onFilterChang
 document.getElementById('index-filter').addEventListener('change', onFilterChange);
 
 // ---------------------------------------------------------------------------
+// K-line modal
+// ---------------------------------------------------------------------------
+let klineChart = null;
+const klineModal = document.getElementById('kline-modal');
+const klineTitle = document.getElementById('kline-title');
+const klineInfo = document.getElementById('kline-info');
+const klineChartDom = document.getElementById('kline-chart');
+
+function computeMA(data, period) {
+  const result = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      result.push(null);
+    } else {
+      let sum = 0;
+      for (let j = i - period + 1; j <= i; j++) sum += data[j].close;
+      result.push(+(sum / period).toFixed(2));
+    }
+  }
+  return result;
+}
+
+function renderKlineChart(rawData) {
+  if (klineChart) klineChart.dispose();
+
+  const dates = rawData.map(d => d.date);
+  const ohlc = rawData.map(d => [d.open, d.close, d.low, d.high]);
+  const volumes = rawData.map(d => d.volume);
+  const ma5 = computeMA(rawData, 5);
+  const ma10 = computeMA(rawData, 10);
+  const ma20 = computeMA(rawData, 20);
+  const ma60 = computeMA(rawData, 60);
+  const volumeColors = rawData.map(d => d.close >= d.open ? '#dc2626' : '#16a34a');
+
+  klineChart = echarts.init(klineChartDom);
+  klineChart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+    },
+    legend: {
+      data: ['K线', 'MA5', 'MA10', 'MA20', 'MA60'],
+      top: 6,
+      left: 'center',
+      textStyle: { fontSize: 11 },
+    },
+    grid: [
+      { left: '8%', right: '3%', top: 50, height: '55%' },
+      { left: '8%', right: '3%', top: '72%', height: '16%' },
+    ],
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false }, axisLine: { lineStyle: { color: '#e5e7eb' } } },
+      { type: 'category', data: dates, gridIndex: 1, axisLine: { lineStyle: { color: '#e5e7eb' } } },
+    ],
+    yAxis: [
+      { type: 'value', gridIndex: 0, scale: true, splitArea: { show: true, areaStyle: { color: ['#fafafa', '#fff'] } } },
+      { type: 'value', gridIndex: 1, splitLine: { show: false } },
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 50, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], start: 50, end: 100, bottom: 10, height: 20 },
+    ],
+    series: [
+      {
+        name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
+        data: ohlc,
+        itemStyle: { color: '#dc2626', color0: '#16a34a', borderColor: '#dc2626', borderColor0: '#16a34a' },
+        markPoint: {
+          data: [
+            { type: 'max', name: '最高' },
+            { type: 'min', name: '最低' },
+          ],
+        },
+      },
+      { name: 'MA5', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma5, symbol: 'none', lineStyle: { width: 1 } },
+      { name: 'MA10', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma10, symbol: 'none', lineStyle: { width: 1 } },
+      { name: 'MA20', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma20, symbol: 'none', lineStyle: { width: 1 } },
+      { name: 'MA60', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma60, symbol: 'none', lineStyle: { width: 1 } },
+      {
+        name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
+        itemStyle: { color: params => volumeColors[params.dataIndex] },
+      },
+    ],
+  });
+}
+
+async function openKlineModal(code, name) {
+  klineTitle.textContent = `${name} (${code})`;
+  klineInfo.textContent = '加载中...';
+  klineModal.classList.add('active');
+  klineChartDom.innerHTML = '<div class="kline-loading">加载K线数据中...</div>';
+
+  try {
+    const data = await fetchJSON(`/api/kline/${code}?days=250`);
+    klineInfo.textContent = data.length > 0 ? `${data.length} 个交易日` : '暂无K线数据';
+    if (data.length > 0) {
+      klineChartDom.innerHTML = '';
+      renderKlineChart(data);
+    } else {
+      klineChartDom.innerHTML = '<div class="kline-loading">该股票暂无K线数据</div>';
+    }
+  } catch {
+    klineInfo.textContent = '加载失败';
+    klineChartDom.innerHTML = '<div class="kline-loading">K线数据加载失败</div>';
+  }
+}
+
+function closeKlineModal() {
+  klineModal.classList.remove('active');
+  if (klineChart) { klineChart.dispose(); klineChart = null; }
+  klineChartDom.innerHTML = '';
+}
+
+document.getElementById('kline-close').addEventListener('click', closeKlineModal);
+klineModal.addEventListener('click', e => { if (e.target === klineModal) closeKlineModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && klineModal.classList.contains('active')) closeKlineModal();
+});
+
+// ---------------------------------------------------------------------------
 // responsive
 // ---------------------------------------------------------------------------
-window.addEventListener('resize', () => chart.resize());
+window.addEventListener('resize', () => { chart.resize(); if (klineChart) klineChart.resize(); });
 
 // ---------------------------------------------------------------------------
 // init

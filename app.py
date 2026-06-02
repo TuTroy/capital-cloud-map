@@ -362,6 +362,26 @@ def api_top5():
 
 
 # ---------------------------------------------------------------------------
+# API: kline
+# ---------------------------------------------------------------------------
+
+@app.route("/api/kline/<code>")
+def api_kline(code):
+    days = request.args.get("days", 250, type=int)
+    days = max(1, min(days, 500))
+
+    rows = _query(
+        "SELECT * FROM ("
+        "  SELECT date, open, high, low, close, volume, amount, turnover_ratio, change_pct "
+        "  FROM stock_kline WHERE code=? "
+        "  ORDER BY date DESC LIMIT ?"
+        ") ORDER BY date ASC",
+        (code, days),
+    )
+    return jsonify(rows)
+
+
+# ---------------------------------------------------------------------------
 # main page
 # ---------------------------------------------------------------------------
 
@@ -377,25 +397,41 @@ def index():
 def _ensure_data():
     """确保最新交易日数据已入库，返回 (success, trading_day)"""
     from scripts.fetch import get_latest_trading_day
-    trading_day = get_latest_trading_day()
-    print(f"[app] 最近交易日: {trading_day}")
+    try:
+        trading_day = get_latest_trading_day()
+    except Exception as e:
+        trading_day = _latest_date()
+        if not trading_day:
+            trading_day = datetime.date.today().isoformat()
+        print(f"[app] get_latest_trading_day 失败({e})，fallback: {trading_day}", flush=True)
+    print(f"[app] 最近交易日: {trading_day}", flush=True)
 
-    if has_data_for_date(trading_day):
-        print(f"[app] 交易日({trading_day})数据已存在，跳过拉取")
-        return True, trading_day
+    need_fetch = not has_data_for_date(trading_day)
 
-    print(f"[app] 交易日({trading_day})无数据，开始拉取...")
+    if need_fetch:
+        print(f"[app] 交易日({trading_day})无数据，开始拉取...", flush=True)
 
-    from scripts.fetch import run_fetch
-    from scripts.classify import run_classify
+        from scripts.fetch import run_fetch
+        from scripts.classify import run_classify
 
-    df, _ = run_fetch()
-    if df is None or len(df) == 0:
-        print("[app] 无交易数据")
-        return False, trading_day
+        df, _ = run_fetch()
+        if df is None or len(df) == 0:
+            print("[app] 无交易数据")
+            return False, trading_day
 
-    df, l1, l2, l3 = run_classify(df)
-    run_update(df, l1, l2, l3, trading_day)
+        df, l1, l2, l3 = run_classify(df)
+        run_update(df, l1, l2, l3, trading_day)
+    else:
+        print(f"[app] 交易日({trading_day})数据已存在，跳过拉取", flush=True)
+
+    # 同步 K 线数据（无论行情是否新拉，确保 K 线入库）
+    if not os.environ.get("SKIP_KLINE"):
+        try:
+            from scripts.fetch_kline import run_kline_daily_update
+            run_kline_daily_update(trading_day)
+        except Exception as e:
+            print(f"[app] K线更新失败 (非致命): {e}", flush=True)
+
     return True, trading_day
 
 

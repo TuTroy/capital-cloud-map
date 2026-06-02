@@ -53,6 +53,22 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS stock_kline (
+            date            TEXT,
+            code            TEXT,
+            open            REAL,
+            high            REAL,
+            low             REAL,
+            close           REAL,
+            volume          REAL,
+            amount          REAL,
+            turnover_ratio  REAL,
+            change_pct      REAL,
+            PRIMARY KEY (date, code)
+        )
+    """)
+
     conn.commit()
     conn.close()
     print("[update_db] 数据库表已就绪")
