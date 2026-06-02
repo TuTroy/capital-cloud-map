@@ -423,8 +423,8 @@ def main():
     scheduler.start()
     atexit.register(lambda: scheduler.shutdown(wait=False))
 
-    # 只在本地开发环境打开浏览器
-    if os.environ.get("FLY_APP_NAME") is None:
+    # 本地开发环境自动打开浏览器
+    if not os.environ.get("PRODUCTION"):
         threading.Timer(1.0, _open_browser).start()
 
     app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
