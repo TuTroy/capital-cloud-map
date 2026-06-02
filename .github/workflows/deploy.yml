@@ -19,13 +19,27 @@ jobs:
           script: |
             cd /home/ubuntu/capital-cloud-map
 
-            # try direct git pull first, then fallback to ghproxy
-            if ! git -c http.version=HTTP/1.1 pull 2>/dev/null; then
-              echo "Direct git pull failed, trying mirror..."
-              git -c http.version=HTTP/1.1 -c url."https://ghproxy.net/https://github.com/".insteadOf="https://github.com/" pull || {
-                echo "GIT PULL FAILED - keeping current version"
-                exit 1
+            # Pull latest code (with HTTP/1.1 and ghproxy fallback for China servers)
+            git config --local http.version HTTP/1.1
+            if ! git pull 2>&1; then
+              echo "Direct pull failed, trying ghproxy mirror..."
+              git config --local url."https://ghproxy.net/https://github.com/".insteadOf "https://github.com/"
+              git pull 2>&1 || {
+                echo "GIT PULL FAILED — trying curl tarball fallback..."
+                REPO="TuTroy/capital-cloud-map"
+                BRANCH="main"
+                curl -fsSL "https://ghproxy.net/https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" -o /tmp/repo.tar.gz || \
+                  curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" -o /tmp/repo.tar.gz
+                if [ -f /tmp/repo.tar.gz ]; then
+                  tar xzf /tmp/repo.tar.gz --strip-components=1 -C .
+                  rm /tmp/repo.tar.gz
+                  echo "OK - tarball extracted"
+                else
+                  echo "ALL PULL METHODS FAILED"
+                  exit 1
+                fi
               }
+              git config --local --unset url."https://ghproxy.net/https://github.com/".insteadOf 2>/dev/null || true
             fi
 
             source venv/bin/activate
