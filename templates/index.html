@@ -272,7 +272,7 @@ function getTreemapOption(data) {
   const treemapData = data.map(d => {
     const v = Math.max(d.turnover || 0, 0.01);
     const ratio = (Math.log10(v) - logMin) / logRange;
-    const fs = Math.round(11 + Math.max(0, Math.min(1, ratio)) * 19);
+    const fs = Math.round(9 + Math.max(0, Math.min(1, ratio)) * 14);
     return {
       name: isStockLevel ? `${d.name}\n${d.code}` : d.industry_name,
       value: v,
